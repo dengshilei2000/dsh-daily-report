@@ -12,13 +12,13 @@ DeepSeek Harness（DSH Web GUI）的日报助手插件：**上午素材 / 下午
 
 ### 方式一：本地目录安装（推荐，便于后续改代码）
 
-**Windows（PowerShell）**——注意路径不能含空格，`link:` 解析不了带空格的路径：
+**Windows（PowerShell）**——`link:` 解析不了含空格的路径，请克隆到无空格目录；`$PWD` 会自动取当前目录，无需手写具体路径：
 
 ```powershell
-# 把仓库克隆到无空格路径，例如 D:\leigeqaq
-git clone https://github.com/dengshilei2000/leigeqaq.git D:\leigeqaq
-cd D:\leigeqaq
-dsh plugin --profile web add link:D:\leigeqaq
+# 克隆到任意无空格路径（例如 D:\leigeqaq，不要在带空格的目录下操作）
+git clone https://github.com/dengshilei2000/leigeqaq.git
+cd leigeqaq
+dsh plugin --profile web add "link:$PWD"
 dsh web   # 重启后生效
 ```
 
@@ -31,7 +31,7 @@ dsh plugin --profile web add "link:$(pwd)"
 dsh web   # 重启后生效
 ```
 
-> `$(pwd)` 是 bash 语法，Windows PowerShell 里会展开成带空格/反斜杠的路径导致安装失败，所以 Windows 请用上面的绝对路径写法。
+> `$PWD`（PowerShell）与 `$(pwd)`（bash）都会自动展开为当前目录，命令里无需写死具体路径；唯一要求是当前目录路径不含空格（Windows 尤其注意，例如不要克隆到 `C:\Users\张三 lee\...` 这类目录）。
 
 ### 方式二：tarball 安装（分发给他人，无需对方克隆仓库）
 
@@ -44,8 +44,8 @@ npm pack
 安装方拿到 `dsh-daily-report-0.1.0.tgz` 后：
 
 ```powershell
-# Windows（PowerShell）
-dsh plugin --profile web add file:D:\path\to\dsh-daily-report-0.1.0.tgz
+# Windows（PowerShell，$PWD 自动取当前目录，路径需无空格）
+dsh plugin --profile web add "file:$PWD\dsh-daily-report-0.1.0.tgz"
 ```
 
 ```bash
