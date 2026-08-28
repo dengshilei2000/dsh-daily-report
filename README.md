@@ -12,20 +12,45 @@ DeepSeek Harness（DSH Web GUI）的日报助手插件：**上午素材 / 下午
 
 ### 方式一：本地目录安装（推荐，便于后续改代码）
 
-```bash
-git clone https://github.com/dengshilei2000/leigeqaq.git
-cd leigeqaq
-dsh plugin --profile web add link:$(pwd)
+**Windows（PowerShell）**——注意路径不能含空格，`link:` 解析不了带空格的路径：
+
+```powershell
+# 把仓库克隆到无空格路径，例如 D:\leigeqaq
+git clone https://github.com/dengshilei2000/leigeqaq.git D:\leigeqaq
+cd D:\leigeqaq
+dsh plugin --profile web add link:D:\leigeqaq
 dsh web   # 重启后生效
 ```
 
-### 方式二：tarball 安装
+**macOS / Linux（bash）**：
 
 ```bash
+git clone https://github.com/dengshilei2000/leigeqaq.git
 cd leigeqaq
-npm pack   # 生成 dsh-daily-report-0.1.0.tgz
-# 安装方执行：
-dsh plugin --profile web add file:D:/path/to/dsh-daily-report-0.1.0.tgz
+dsh plugin --profile web add "link:$(pwd)"
+dsh web   # 重启后生效
+```
+
+> `$(pwd)` 是 bash 语法，Windows PowerShell 里会展开成带空格/反斜杠的路径导致安装失败，所以 Windows 请用上面的绝对路径写法。
+
+### 方式二：tarball 安装（分发给他人，无需对方克隆仓库）
+
+```bash
+# 在仓库目录内打包（生成 dsh-daily-report-0.1.0.tgz）
+cd leigeqaq
+npm pack
+```
+
+安装方拿到 `dsh-daily-report-0.1.0.tgz` 后：
+
+```powershell
+# Windows（PowerShell）
+dsh plugin --profile web add file:D:\path\to\dsh-daily-report-0.1.0.tgz
+```
+
+```bash
+# macOS / Linux（bash）
+dsh plugin --profile web add "file:$(pwd)/dsh-daily-report-0.1.0.tgz"
 ```
 
 ### 安装后
