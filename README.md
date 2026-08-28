@@ -1,4 +1,4 @@
-# leigeqaq · dsh-daily-report 日报助手
+# dsh-daily-report · 日报助手
 
 DeepSeek Harness（DSH Web GUI）的日报助手插件：**上午素材 / 下午素材**两个输入框，生成 Word 日报并通过钉钉发送。
 
@@ -15,9 +15,9 @@ DeepSeek Harness（DSH Web GUI）的日报助手插件：**上午素材 / 下午
 **Windows（PowerShell）**——`link:` 解析不了含空格的路径，请克隆到无空格目录；`$PWD` 会自动取当前目录，无需手写具体路径：
 
 ```powershell
-# 克隆到任意无空格路径（例如 D:\leigeqaq，不要在带空格的目录下操作）
-git clone https://github.com/dengshilei2000/leigeqaq.git
-cd leigeqaq
+# 克隆到任意无空格路径（例如 D:\dsh-daily-report，不要在带空格的目录下操作）
+git clone https://github.com/dengshilei2000/dsh-daily-report.git
+cd dsh-daily-report
 dsh plugin --profile web add "link:$PWD"
 dsh web   # 重启后生效
 ```
@@ -25,8 +25,8 @@ dsh web   # 重启后生效
 **macOS / Linux（bash）**：
 
 ```bash
-git clone https://github.com/dengshilei2000/leigeqaq.git
-cd leigeqaq
+git clone https://github.com/dengshilei2000/dsh-daily-report.git
+cd dsh-daily-report
 dsh plugin --profile web add "link:$(pwd)"
 dsh web   # 重启后生效
 ```
@@ -37,7 +37,7 @@ dsh web   # 重启后生效
 
 ```bash
 # 在仓库目录内打包（生成 dsh-daily-report-0.1.0.tgz）
-cd leigeqaq
+cd dsh-daily-report
 npm pack
 ```
 
@@ -79,7 +79,7 @@ dsh plugin --profile web remove dsh-daily-report
 ## 目录结构
 
 ```
-leigeqaq/
+dsh-daily-report/
 ├── package.json          # 插件元数据（bundle patch + client 声明）
 ├── cordis.patch.yml      # 组合补丁：注册 dsh-daily-report 行
 ├── lib/
