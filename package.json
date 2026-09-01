@@ -1,9 +1,12 @@
 {
   "name": "dsh-daily-report",
-  "description": "日报助手持久化插件：上午素材/下午素材两个输入框，生成分点三栏 Word 日报（今日完成工作/明日计划/感悟总结）并通过钉钉发送。Host 半部负责 LLM 生成、DOCX 构建、钉钉发送；Client 半部在 Web GUI 侧栏与右下角提供入口；另以 MCP Server（Streamable HTTP，/api/daily-report/mcp）对外暴露生成/读取/发送工具。",
-  "version": "0.2.0",
+  "description": "日报助手持久化插件：上午素材/下午素材两个输入框，生成分点三栏 Word 日报（今日完成工作/明日计划/感悟总结）并通过钉钉发送。Host 半部负责 LLM 生成、DOCX 构建、钉钉发送；Client 半部在 Web GUI 侧栏与右下角提供入口；另以 MCP Server 对外暴露生成/读取/发送工具：DSH 内嵌 Streamable HTTP（/api/daily-report/mcp）与独立 stdio 进程（lib/mcp-standalone.js，供 Codex 等客户端不依赖 DSH 直接使用）。",
+  "version": "0.2.1",
   "type": "module",
   "main": "lib/index.js",
+  "bin": {
+    "dsh-daily-report-mcp": "lib/mcp-standalone.js"
+  },
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",

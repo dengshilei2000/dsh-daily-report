@@ -135,6 +135,37 @@ http://127.0.0.1:<DSH Web 端口>/api/daily-report/mcp
 }
 ```
 
+### 独立 stdio 模式（无需 DSH，Codex / Claude Code / Cursor CLI 可用）
+
+插件另提供一个**独立 stdio 进程** `lib/mcp-standalone.js`，不依赖 DSH 进程运行：模型直连 DeepSeek API，docx 直接写盘，钉钉仍走本机 `dws`。四个工具与内嵌 HTTP 版完全一致（同一套实现，只换 transport 与上下文适配）。
+
+**环境变量：**
+
+| 变量 | 说明 |
+|---|---|
+| `DAILY_REPORT_API_KEY` | DeepSeek API Key（缺省回退 `DEEPSEEK_API_KEY`）；`generate_report` 必需 |
+| `DAILY_REPORT_API_BASE` | OpenAI 兼容 base URL，默认 `https://api.deepseek.com` |
+| `DAILY_REPORT_MODEL` | 模型名，默认 `deepseek-chat` |
+| `DAILY_REPORT_WORKDIR` | `daily-reports/` 写入目录，默认进程 cwd |
+
+**Codex CLI（`~/.codex/config.toml`）：**
+
+```toml
+[mcp_servers.daily-report]
+command = "node"
+args = ["<插件绝对路径>/lib/mcp-standalone.js"]
+
+[mcp_servers.daily-report.env]
+DAILY_REPORT_API_KEY = "sk-..."   # 或直接在 shell 环境里导出 DEEPSEEK_API_KEY
+DAILY_REPORT_MODEL = "deepseek-chat"
+```
+
+重启 Codex 后即可在对话中调用 `generate_report` 等工具（无需启动 DSH）。
+
+**其他 stdio 客户端**（Claude Code、Cursor CLI 等）同样适用，把 `command`/`args` 指到该脚本即可；`npm install -g .` 之后可直接用 bin 名 `dsh-daily-report-mcp`。
+
+**验证：** `node standalone-smoke-test.mjs`（mock API + stdio 全链路，9 项断言，无需真实 Key / DSH）。
+
 ### 注意事项
 
 - **重启即清账**：`outputs` 账本是进程内存。重启 DSH 后历史 `.docx` 仍在磁盘（`daily-reports/`），但 `reportId` 全部失效，需重新 `generate_report`。
@@ -152,25 +183,29 @@ dsh plugin --profile web remove dsh-daily-report
 
 ```
 dsh-daily-report/
-├── package.json          # 插件元数据（bundle patch + client 声明 + MCP SDK 依赖）
+├── package.json          # 插件元数据（bundle patch + client 声明 + MCP SDK 依赖 + bin）
 ├── cordis.patch.yml      # 组合补丁：注册 dsh-daily-report 行
 ├── lib/
 │   ├── index.js          # Host 半部：HTTP 路由 + LLM 生成 + DOCX 构建 + 钉钉发送
-│   ├── mcp-server.js     # MCP Server：Streamable HTTP 端点 + 4 个工具（复用 index.js 业务函数）
+│   ├── mcp-server.js     # MCP Server：4 个工具实现（HTTP 与 stdio 共用 createServer）
+│   ├── mcp-standalone.js # 独立 stdio MCP Server（Codex 等，无需 DSH，直连 DeepSeek API）
 │   └── client.js         # Client 半部：侧栏/右下角入口 + 日报面板（ModuleLoader 格式）
-├── mcp-smoke-test.mjs    # MCP 全链路冒烟测试（stub ctx + 官方 SDK 客户端）
+├── mcp-smoke-test.mjs        # HTTP 版 MCP 冒烟测试（12 项断言）
+├── standalone-smoke-test.mjs # 独立 stdio 版冒烟测试（9 项断言）
 └── README.md
 ```
 
 ## 测试
 
 ```bash
-node mcp-smoke-test.mjs   # MCP 端点冒烟测试（12 项断言，无需启动 DSH）
+node mcp-smoke-test.mjs        # HTTP 版 MCP 端点（12 项断言，无需启动 DSH）
+node standalone-smoke-test.mjs # 独立 stdio 版（mock API + PowerShell 写盘，9 项断言）
 # 插件内置自检：GET /api/daily-report/self-test（27 项）
 ```
 
 ## 版本
 
+- 0.2.1 新增独立 stdio MCP Server（lib/mcp-standalone.js + bin `dsh-daily-report-mcp`）：Codex 等客户端无需 DSH 直接调用
 - 0.2.0 新增 MCP Server（Streamable HTTP）：generate_report / get_report / list_reports / send_report
 - 0.1.0 首个可分发版本
 
