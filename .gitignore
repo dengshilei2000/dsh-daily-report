@@ -1,0 +1,13 @@
+# dependencies
+node_modules/
+
+# build & package artifacts
+dist/
+*.tgz
+
+# runtime output (generated daily reports, uploaded material)
+daily-reports/
+
+# logs & scratch
+*.log
+*.tmp

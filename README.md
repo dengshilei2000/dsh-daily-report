@@ -7,6 +7,7 @@ DeepSeek Harness（DSH Web GUI）的日报助手插件：**上午素材 / 下午
 - **感悟总结**：一段连贯、充实的文字（不分点）
 - 每框可上传文档（.docx/.txt/.md 等）或源代码文件夹压缩包（.zip，单个 ≤100MB），上传后自动解析文本并入日报生成
 - 生成后可直接下载 Word 文档，或填写钉钉好友姓名发送附件
+- 内置 **MCP Server**（Streamable HTTP）：`generate_report` / `get_report` / `list_reports` / `send_report` 四个工具，供 Claude Desktop、Cursor、DSH 的 `dsh-mcp-client` 等外部 MCP 客户端调用
 
 ## 安装
 
@@ -18,6 +19,7 @@ DeepSeek Harness（DSH Web GUI）的日报助手插件：**上午素材 / 下午
 # 克隆到任意无空格路径（例如 D:\dsh-daily-report，不要在带空格的目录下操作）
 git clone https://github.com/dengshilei2000/dsh-daily-report.git
 cd dsh-daily-report
+npm install   # 安装运行时依赖（MCP SDK、zod）；link: 安装不会自动装依赖
 dsh plugin --profile web add "link:$PWD"
 dsh web   # 重启后生效
 ```
@@ -27,6 +29,7 @@ dsh web   # 重启后生效
 ```bash
 git clone https://github.com/dengshilei2000/dsh-daily-report.git
 cd dsh-daily-report
+npm install   # 安装运行时依赖（MCP SDK、zod）
 dsh plugin --profile web add "link:$(pwd)"
 dsh web   # 重启后生效
 ```
@@ -36,21 +39,21 @@ dsh web   # 重启后生效
 ### 方式二：tarball 安装（分发给他人，无需对方克隆仓库）
 
 ```bash
-# 在仓库目录内打包（生成 dsh-daily-report-0.1.0.tgz）
+# 在仓库目录内打包（生成 dsh-daily-report-<版本>.tgz，例如 0.2.0）
 cd dsh-daily-report
 npm pack
 ```
 
-安装方拿到 `dsh-daily-report-0.1.0.tgz` 后：
+安装方拿到 `dsh-daily-report-0.2.0.tgz` 后（`dsh plugin` 内部走 pnpm，`file:` 安装会**自动安装插件依赖**，无需手动 `npm install`）：
 
 ```powershell
 # Windows（PowerShell，$PWD 自动取当前目录，路径需无空格）
-dsh plugin --profile web add "file:$PWD\dsh-daily-report-0.1.0.tgz"
+dsh plugin --profile web add "file:$PWD\dsh-daily-report-0.2.0.tgz"
 ```
 
 ```bash
 # macOS / Linux（bash）
-dsh plugin --profile web add "file:$(pwd)/dsh-daily-report-0.1.0.tgz"
+dsh plugin --profile web add "file:$(pwd)/dsh-daily-report-0.2.0.tgz"
 ```
 
 ### 安装后
@@ -70,6 +73,75 @@ dsh plugin --profile web add "file:$(pwd)/dsh-daily-report-0.1.0.tgz"
 
 > 生成日报会消耗模型 API 额度。钉钉发送依赖本机 `dws` CLI（钉钉工作台命令行）可用。
 
+## MCP Server（外部客户端接入）
+
+插件在 DSH Web 进程内暴露一个 **Streamable HTTP** 的 MCP 端点（无状态、无额外端口、仅本机回环）：
+
+```
+http://127.0.0.1:<DSH Web 端口>/api/daily-report/mcp
+```
+
+例如 DSH Web 运行在 `127.0.0.1:3080` 时，端点为 `http://127.0.0.1:3080/api/daily-report/mcp`。
+
+### 工具
+
+| 工具 | 说明 |
+|---|---|
+| `generate_report` | 传入 `morningMaterials` / `afternoonMaterials`（至少一项）→ 调用当前 DSH 模型生成三栏正文并保存 `.docx`；返回 `reportId`、三段正文、文件相对路径与 `downloadBase64` |
+| `get_report` | 按 `reportId` 读取已生成日报的正文与文件信息 |
+| `list_reports` | 列出本次 DSH 进程内已生成的日报（`reportId` + 日期 + 路径） |
+| `send_report` | 把已生成的日报 `.docx` 作为附件发送给钉钉好友（`reportId` + `recipient` 姓名，唯一匹配，歧义时停止） |
+
+> MCP 与 Web 面板共享同一内存账本：通过 MCP 生成的日报可以用面板发送，反之亦然。
+
+### 客户端配置示例
+
+**DSH 自身（`cordis.yml` 加入一行）：**
+
+```yaml
+- id: mcp-daily-report
+  name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: daily-report
+    transport: streamable-http
+    url: http://127.0.0.1:3080/api/daily-report/mcp
+```
+
+模型将看到 `mcp__daily-report__generate_report` 等工具。
+
+**Claude Desktop（`claude_desktop_config.json`）：**
+
+```json
+{
+  "mcpServers": {
+    "daily-report": {
+      "type": "http",
+      "url": "http://127.0.0.1:3080/api/daily-report/mcp"
+    }
+  }
+}
+```
+
+**Cursor（项目级 `.mcp.json`）：**
+
+```json
+{
+  "mcpServers": {
+    "daily-report": {
+      "type": "http",
+      "url": "http://127.0.0.1:3080/api/daily-report/mcp"
+    }
+  }
+}
+```
+
+### 注意事项
+
+- **重启即清账**：`outputs` 账本是进程内存。重启 DSH 后历史 `.docx` 仍在磁盘（`daily-reports/`），但 `reportId` 全部失效，需重新 `generate_report`。
+- **生成消耗模型额度**：`generate_report` 走 DSH 当前选中的模型，消耗 API 额度。
+- **仅限本机**：端点绑定在 DSH Web 的回环地址上，未做鉴权。不要把 DSH Web 绑定到 `0.0.0.0` 后暴露给不可信网络。
+- **依赖 `dws`**：`send_report` 依赖本机 `dws` CLI 可用。
+
 ## 卸载
 
 ```bash
@@ -80,16 +152,26 @@ dsh plugin --profile web remove dsh-daily-report
 
 ```
 dsh-daily-report/
-├── package.json          # 插件元数据（bundle patch + client 声明）
+├── package.json          # 插件元数据（bundle patch + client 声明 + MCP SDK 依赖）
 ├── cordis.patch.yml      # 组合补丁：注册 dsh-daily-report 行
 ├── lib/
 │   ├── index.js          # Host 半部：HTTP 路由 + LLM 生成 + DOCX 构建 + 钉钉发送
+│   ├── mcp-server.js     # MCP Server：Streamable HTTP 端点 + 4 个工具（复用 index.js 业务函数）
 │   └── client.js         # Client 半部：侧栏/右下角入口 + 日报面板（ModuleLoader 格式）
+├── mcp-smoke-test.mjs    # MCP 全链路冒烟测试（stub ctx + 官方 SDK 客户端）
 └── README.md
+```
+
+## 测试
+
+```bash
+node mcp-smoke-test.mjs   # MCP 端点冒烟测试（12 项断言，无需启动 DSH）
+# 插件内置自检：GET /api/daily-report/self-test（27 项）
 ```
 
 ## 版本
 
+- 0.2.0 新增 MCP Server（Streamable HTTP）：generate_report / get_report / list_reports / send_report
 - 0.1.0 首个可分发版本
 
 License: Apache-2.0
