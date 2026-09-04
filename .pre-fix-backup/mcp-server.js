@@ -26,7 +26,6 @@ import {
   saveDocx,
   sendDingTalk,
   outputs,
-  rememberOutput,
   nextSequence,
   text,
 } from './index.js';
@@ -34,8 +33,7 @@ import {
 /** Public MCP endpoint path (registered as an exact webServer route). */
 export const MCP_PATH = '/api/daily-report/mcp';
 
-// Keep in sync with package.json version — reported to MCP clients at initialize.
-const PLUGIN_VERSION = '0.2.2';
+const PLUGIN_VERSION = '0.2.0';
 
 function jsonTextResult(value) {
   return {
@@ -85,7 +83,7 @@ export function createServer(ctx) {
       const report = await createReportWithFiles(ctx, data, [], []);
       const file = await saveDocx(ctx, report);
       const id = 'report-' + String(nextSequence());
-      rememberOutput(id, { report, file });
+      outputs.set(id, { report, file });
       return jsonTextResult({
         reportId: id,
         date: file.date,

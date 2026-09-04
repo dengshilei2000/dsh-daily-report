@@ -13,14 +13,6 @@ const API_PREFIX = '/api/daily-report'
 export const outputs = new Map()
 const uploads = new Map()
 let sequence = 0
-const OUTPUTS_MAX = 100
-let docxSeq = 0
-
-/** Store a generated report, evicting the oldest entry when the ledger exceeds OUTPUTS_MAX. */
-export function rememberOutput(id, entry) {
-  outputs.set(id, entry)
-  if (outputs.size > OUTPUTS_MAX) outputs.delete(outputs.keys().next().value)
-}
 
 /** Monotonic id counter shared by the HTTP API and the MCP server. */
 export function nextSequence() {
@@ -46,16 +38,7 @@ export function apply(ctx) {
 // HTTP helpers
 // ---------------------------------------------------------------------------
 
-function readJsonBody(req, res, maxBytes) {
-  const origin = req.headers.origin
-  const host = req.headers.host
-  if (origin && host) {
-    // Cheap CSRF guard: browsers attach Origin to every cross-site POST. Allow
-    // same-host requests (the DSH GUI) and no-Origin requests (CLI clients).
-    let sameOrigin = false
-    try { sameOrigin = new URL(String(origin)).host === String(host) } catch { sameOrigin = false }
-    if (!sameOrigin) return Promise.reject(new Error('请求来源不被允许'))
-  }
+function readJsonBody(req, maxBytes) {
   return new Promise((resolve, reject) => {
     const chunks = []
     let size = 0
@@ -66,12 +49,7 @@ function readJsonBody(req, res, maxBytes) {
       if (size > maxBytes) {
         settled = true
         reject(new Error('body too large'))
-        try {
-          if (!res.headersSent) {
-            res.writeHead(413, { 'content-type': 'application/json; charset=utf-8' })
-            res.end(JSON.stringify({ ok: false, error: '请求体过大' }))
-          }
-        } catch { /* ignore */ }
+        req.destroy()
         return
       }
       chunks.push(chunk)
@@ -132,9 +110,7 @@ export function normalizeInput(raw) {
 }
 
 function xmlEscape(value) {
-  // Strip XML 1.0 illegal code points (C0 controls except TAB/LF/CR, U+FFFE/U+FFFF)
-  // before escaping, so model/user text can never produce an invalid document.xml.
-  return String(value).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;')
+  return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;')
 }
 
 function parseReport(raw) {
@@ -392,10 +368,7 @@ async function ingestUpload(ctx, period, fileName, base64Data) {
   const lower = name.toLowerCase()
   if (lower.endsWith('.zip')) {
     const dirTarget = 'daily-reports/uploads/' + period + '-' + name.replace(/\.[^.]+$/, '') + '-unzip'
-    // Pre-scan entry count / total uncompressed size before extracting, so a
-    // crafted archive cannot balloon the disk (zip bomb). Path traversal is
-    // already rejected by .NET's ExtractToDirectory on every supported runtime.
-    const r2 = await shellRun(ctx, '$ErrorActionPreference=' + quote('Stop') + ';Add-Type -AssemblyName System.IO.Compression.FileSystem;$z=' + quote(file) + ';$d=' + quote(dirTarget) + ';if(Test-Path $d){Remove-Item -LiteralPath $d -Recurse -Force};$a=[IO.Compression.ZipFile]::OpenRead($z);try{$n=0;$s=0L;foreach($e in $a.Entries){$n+=1;$s+=$e.Length;if($n -gt 2000 -or $s -gt 1073741824){throw ' + quote('压缩包条目数或解压体积超过上限（2000 个 / 1GB）') + '}}}finally{$a.Dispose()};[IO.Compression.ZipFile]::ExtractToDirectory($z,$d)', '.')
+    const r2 = await shellRun(ctx, '$ErrorActionPreference=' + quote('Stop') + ';$z=' + quote(file) + ';$d=' + quote(dirTarget) + ';if(Test-Path $d){Remove-Item -LiteralPath $d -Recurse -Force};Add-Type -AssemblyName System.IO.Compression.FileSystem;[IO.Compression.ZipFile]::ExtractToDirectory($z,$d)', '.')
     if (r2.denied) throw new Error('压缩包解压被沙箱策略拒绝')
     if (r2.exitCode !== 0) throw new Error('压缩包解压失败：' + (r2.stderr || 'exit ' + String(r2.exitCode)))
     const r3 = await shellRun(ctx, 'Get-ChildItem -LiteralPath ' + quote(dirTarget) + ' -Recurse -File | Select-Object -ExpandProperty FullName', '.')
@@ -407,17 +380,12 @@ async function ingestUpload(ctx, period, fileName, base64Data) {
       if (total >= 60000) break
       const raw = await extractTextFromTarget(ctx, full)
       const sample = raw.slice(0, 6000)
-      // Skip members the parser cannot turn into text (unknown types, legacy
-      // .doc) instead of feeding placeholder noise into the prompt.
-      if (sample.startsWith('[unhandled file type:') || sample.startsWith('[不支持 .doc')) continue
       parts.push('【文件 ' + full.replace(/\\/g, '/') + '】\n' + sample)
       total += sample.length
     }
     return { kind: 'archive', period, name, fileCount: files.length, text: parts.join('\n\n').slice(0, 120000), preview: parts.join('\n\n').slice(0, 200) }
   }
   const raw = await extractTextFromTarget(ctx, file)
-  if (raw.startsWith('[unhandled file type:')) throw new Error('不支持的文件类型：' + raw + '。请上传文本/代码文件、.docx 或 .zip')
-  if (raw.startsWith('[不支持 .doc')) throw new Error(raw)
   return { kind: 'document', period, name, text: raw.slice(0, 120000), preview: raw.slice(0, 200) }
 }
 
@@ -478,13 +446,10 @@ export async function createReportWithFiles(ctx, data, morningUploads, afternoon
 
 export async function saveDocx(ctx, report) {
   const date = dateLabel()
-  const now = new Date()
-  const hhmmss = String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0') + String(now.getSeconds()).padStart(2, '0')
-  const stamp = date + '-' + hhmmss + '-' + String(++docxSeq)
   const bytes = docxBytes(report, date)
   const encoded = base64(bytes)
-  const relativePath = 'daily-reports/' + stamp + '-日报.docx'
-  const command = '$ErrorActionPreference=' + quote('Stop') + ';$d=' + quote('daily-reports') + ';New-Item -ItemType Directory -Force -Path $d|Out-Null;$p=Join-Path $d ' + quote(stamp + '-日报.docx') + ';$b=[Convert]::FromBase64String([Console]::In.ReadToEnd());[IO.File]::WriteAllBytes($p,$b)'
+  const relativePath = 'daily-reports/' + date + '-日报.docx'
+  const command = '$ErrorActionPreference=' + quote('Stop') + ';$d=' + quote('daily-reports') + ';New-Item -ItemType Directory -Force -Path $d|Out-Null;$p=Join-Path $d ' + quote(date + '-日报.docx') + ';$b=[Convert]::FromBase64String([Console]::In.ReadToEnd());[IO.File]::WriteAllBytes($p,$b)'
   const result = await shellRun(ctx, command, '.', encoded)
   if (result.denied) throw new Error('文件写入被沙箱策略拒绝')
   if (result.exitCode !== 0) throw new Error('Word 文件生成失败：' + (result.stderr || 'exit ' + String(result.exitCode)))
@@ -719,10 +684,9 @@ function zipEntries(bytes) {
 // Routes
 // ---------------------------------------------------------------------------
 
-export function makeRoutes(ctx) {
+function makeRoutes(ctx) {
   return [
     {
-      kind: 'exact',
       path: API_PREFIX + '/health',
       handler: (req, res) => {
         writeJson(res, 200, {
@@ -733,18 +697,16 @@ export function makeRoutes(ctx) {
       },
     },
     {
-      kind: 'exact',
       path: API_PREFIX + '/self-test',
       handler: (req, res) => {
         writeJson(res, 200, selfTest())
       },
     },
     {
-      kind: 'exact',
       path: API_PREFIX + '/upload-file',
       handler: async (req, res) => {
         try {
-          const args = await readJsonBody(req, res, MAX_UPLOAD_BYTES * 2)
+          const args = await readJsonBody(req, MAX_UPLOAD_BYTES * 2)
           if (!args || typeof args !== 'object') throw new Error('上传参数无效')
           const period = args.period === 'afternoon' ? 'afternoon' : 'morning'
           const result = await ingestUpload(ctx, period, args.name, args.base64)
@@ -758,34 +720,29 @@ export function makeRoutes(ctx) {
       },
     },
     {
-      kind: 'exact',
       path: API_PREFIX + '/generate-report',
       handler: async (req, res) => {
         try {
-          const args = await readJsonBody(req, res, 2 * 1024 * 1024)
+          const args = await readJsonBody(req, 2 * 1024 * 1024)
           const data = normalizeInput(args)
           const morning = []
           const afternoon = []
-          const missing = []
           if (args && typeof args === 'object' && Array.isArray(args.morningUploadIds)) {
             for (const id of args.morningUploadIds) {
               const record = uploads.get(String(id))
               if (record && record.period === 'morning') morning.push(record.item)
-              else missing.push(String(id))
             }
           }
           if (args && typeof args === 'object' && Array.isArray(args.afternoonUploadIds)) {
             for (const id of args.afternoonUploadIds) {
               const record = uploads.get(String(id))
               if (record && record.period === 'afternoon') afternoon.push(record.item)
-              else missing.push(String(id))
             }
           }
-          if (missing.length > 0) throw new Error('以下上传文件已失效（可能已超出 24 个文件上限被自动清理）：' + missing.join('、') + '。请移除后重新上传')
           const report = await createReportWithFiles(ctx, data, morning, afternoon)
           const file = await saveDocx(ctx, report)
           const id = 'report-' + String(nextSequence())
-          rememberOutput(id, { report, file })
+          outputs.set(id, { report, file })
           writeJson(res, 200, { ok: true, id, report, file: { date: file.date, relativePath: file.relativePath, bytes: file.bytes, downloadBase64: file.base64 } })
         } catch (error) {
           writeJson(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
@@ -793,40 +750,10 @@ export function makeRoutes(ctx) {
       },
     },
     {
-      kind: 'exact',
-      path: API_PREFIX + '/rebuild-file',
-      // B1: rebuild the docx from user-edited section text. Validates the three
-      // sections, writes a fresh uniquely-named .docx via saveDocx, and updates
-      // the ledger entry in place so later downloads and MCP get/send_report see
-      // the edited content.
-      handler: async (req, res) => {
-        try {
-          const args = await readJsonBody(req, res, 1 * 1024 * 1024)
-          if (!args || typeof args !== 'object') throw new Error('参数无效')
-          const id = text(args.id, '日报编号')
-          const item = outputs.get(id)
-          if (!item) throw new Error('找不到该日报，请重新生成')
-          const raw = args.report && typeof args.report === 'object' ? args.report : {}
-          const todayCompleted = text(raw.todayCompleted, '今日完成工作')
-          const tomorrowPlan = text(raw.tomorrowPlan, '明日计划')
-          const insights = text(raw.insights, '感悟总结')
-          if (!todayCompleted || !tomorrowPlan || !insights) throw new Error('三个日报版块都不能为空')
-          const report = { todayCompleted, tomorrowPlan, insights }
-          const file = await saveDocx(ctx, report)
-          item.report = report
-          item.file = file
-          writeJson(res, 200, { ok: true, id, report, file: { date: file.date, relativePath: file.relativePath, bytes: file.bytes, downloadBase64: file.base64 } })
-        } catch (error) {
-          writeJson(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
-        }
-      },
-    },
-    {
-      kind: 'exact',
       path: API_PREFIX + '/send-report',
       handler: async (req, res) => {
         try {
-          const args = await readJsonBody(req, res, 64 * 1024)
+          const args = await readJsonBody(req, 64 * 1024)
           if (!args || typeof args !== 'object') throw new Error('发送参数无效')
           const item = outputs.get(text(args.id, '日报编号'))
           if (!item) throw new Error('找不到该日报，请重新生成')

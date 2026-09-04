@@ -143,48 +143,19 @@ function runShell(command, stdin) {
     let out = '';
     let err = '';
     const cap = 4000000;
-    let settled = false;
-    let timeoutTimer = null;
-    let killTimer = null;
-    let forceTimer = null;
-    const clearTimers = function () {
-      if (timeoutTimer !== null) clearTimeout(timeoutTimer);
-      if (killTimer !== null) clearTimeout(killTimer);
-      if (forceTimer !== null) clearTimeout(forceTimer);
-    };
-    const finish = function (payload) {
-      if (settled) return;
-      settled = true;
-      clearTimers();
-      resolve(payload);
-    };
     child.stdout.on('data', (d) => { out += d.toString(); if (out.length > cap) out = out.slice(-cap); });
     child.stderr.on('data', (d) => { err += d.toString(); if (err.length > cap) err = err.slice(-cap); });
-    // A killed/closed pipe must never surface as an unhandled 'error'.
-    child.stdout.on('error', () => {});
-    child.stderr.on('error', () => {});
-    child.stdin.on('error', () => {});
-    timeoutTimer = setTimeout(() => {
-      // One kill may be ignored by a stuck child: escalate to SIGKILL and
-      // finally force-settle so the tool call can never hang forever.
-      try { child.kill(); } catch { /* ignore */ }
-      killTimer = setTimeout(() => {
-        try { child.kill('SIGKILL'); } catch { /* ignore */ }
-      }, 5000);
-      forceTimer = setTimeout(() => {
-        finish({ exitCode: 1, stdout: { text: out }, stderr: { text: err || '命令超时且进程未退出' }, sandbox: undefined });
-      }, 12000);
-    }, 300000);
+    const timer = setTimeout(() => { try { child.kill(); } catch { /* ignore */ } }, 300000);
     child.on('error', (e) => {
-      finish({ exitCode: 1, stdout: { text: out }, stderr: { text: err || (e && e.message ? e.message : String(e)) }, sandbox: undefined });
+      clearTimeout(timer);
+      resolve({ exitCode: 1, stdout: { text: out }, stderr: { text: err || e.message }, sandbox: undefined });
     });
     child.on('close', (code) => {
-      finish({ exitCode: code == null ? 1 : code, stdout: { text: out }, stderr: { text: err }, sandbox: undefined });
+      clearTimeout(timer);
+      resolve({ exitCode: code == null ? 1 : code, stdout: { text: out }, stderr: { text: err }, sandbox: undefined });
     });
-    try {
-      if (stdin !== undefined && stdin !== null) child.stdin.write(stdin);
-      child.stdin.end();
-    } catch { /* ignore: stream already closed (kill raced the write) */ }
+    if (stdin !== undefined && stdin !== null) child.stdin.write(stdin);
+    child.stdin.end();
   });
 }
 
@@ -230,18 +201,7 @@ console.error(
 
 await server.connect(transport);
 
-let shuttingDown = false;
-const shutdown = async () => {
-  if (shuttingDown) return;
-  shuttingDown = true;
+process.on('SIGINT', async () => {
   try { await server.close(); } catch { /* ignore */ }
   process.exit(0);
-};
-
-process.on('SIGINT', () => { void shutdown(); });
-process.on('SIGTERM', () => { void shutdown(); });
-// Parent closed our stdin (it exited or ended the session): no further
-// requests can arrive, so stop promptly instead of leaving an orphan process
-// that keeps burning API credits and PowerShell children.
-process.stdin.on('end', () => { void shutdown(); });
-process.stdin.on('close', () => { void shutdown(); });
+});

@@ -7,10 +7,6 @@
 // component stays mounted, keeps its state, and shows a small activity pill
 // above the floating button while work runs (or after it finished while the
 // panel was closed) so the user can return and see the result.
-//
-// Editable preview (B1): after generation the three sections are editable.
-// Downloading or sending first rebuilds the .docx from the edited text via the
-// Host /rebuild-file route when the content changed; "还原为生成原文" resets.
 window.__ModuleLoader__.load({
 	id: "dsh-daily-report",
 	factory: (require) => {
@@ -36,7 +32,6 @@ window.__ModuleLoader__.load({
 			".drp-activity:hover{transform:translateY(-1px)}",
 			".drp-activity-running{background:#2563eb}",
 			".drp-activity-done{background:#059669}",
-			".drp-activity-error{background:#b91c1c}",
 			".drp-activity-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
 			".drp-spinner{width:14px;height:14px;flex:none;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:drp-spin .8s linear infinite}",
 			"@keyframes drp-spin{to{transform:rotate(360deg)}}",
@@ -77,12 +72,7 @@ window.__ModuleLoader__.load({
 			".drp-preview{margin-top:18px;border-top:2px solid #e5e7eb;padding-top:14px}",
 			".drp-preview h2{font-size:18px;color:#2563eb;margin:14px 0 6px}",
 			".drp-preview p{white-space:pre-wrap;line-height:1.7;color:#111827;margin:0}",
-			".drp-edit{box-sizing:border-box;width:100%;min-height:96px;border:1px solid #d1d5db;border-radius:10px;background:#fbfcff;color:#111827;padding:10px 12px;font-family:inherit;font-size:14px;line-height:1.7;resize:vertical}",
-			".drp-edit:focus{outline:2px solid rgba(37,99,235,.35);border-color:#2563eb}",
-			".drp-edit-note{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;padding:8px 12px;border-radius:8px;background:#fffbeb;color:#92400e;font-size:13px}",
-			".drp-reset{border:0;background:transparent;color:#2563eb;cursor:pointer;font-size:13px;text-decoration:underline;padding:0;white-space:nowrap}",
-			".drp-preview-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px}",
-			".drp-preview-path{color:#6b7280;font-size:12px}",
+			".drp-download{display:inline-block;margin-top:12px;color:#2563eb;font-weight:600}",
 			"@media(max-width:760px){.drp-boxes{grid-template-columns:1fr}.drp-textarea{min-height:180px}.drp-overlay{padding:8px}.drp-panel{padding:16px}.drp-activity{right:10px;bottom:80px}}"
 		].join("");
 		const ICON = '<svg class="drp-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2.5"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="13" y2="16"/></svg>';
@@ -197,13 +187,11 @@ window.__ModuleLoader__.load({
 			const [form, setForm] = react.useState({ morningMaterials: "", afternoonMaterials: "" });
 			const [recipient, setRecipient] = react.useState("");
 			const [busy, setBusy] = react.useState(false);
-			const [uploadingCount, setUploadingCount] = react.useState(0);
+			const [uploading, setUploading] = react.useState("");
 			const [sending, setSending] = react.useState(false);
 			const [status, setStatus] = react.useState("");
 			const [error, setError] = react.useState("");
 			const [generated, setGenerated] = react.useState(null);
-			const [edited, setEdited] = react.useState(null);
-			const [rebuilding, setRebuilding] = react.useState(false);
 			const [uploads, setUploads] = react.useState({ morning: [], afternoon: [] });
 			const [doneClosed, setDoneClosed] = react.useState(null);
 			const openRef = react.useRef(false);
@@ -221,15 +209,13 @@ window.__ModuleLoader__.load({
 			// Closing the panel never aborts in-flight work; when a task settles
 			// while the panel is closed, remember it so the pill invites the user
 			// back to see the result.
-			const noteIfClosed = function (text, ok) {
-				if (!openRef.current) setDoneClosed({ text: text, ok: ok !== false });
-			};
+			const noteIfClosed = function (text) { if (!openRef.current) setDoneClosed(text); };
 			const pickFiles = async function (period, event) {
 				const files = event.target && event.target.files;
 				if (!files || files.length === 0) return;
 				const file = files[0];
 				if (file.size > MAX_UPLOAD_BYTES) { setError("文件超过 100MB，请先压缩（源代码文件夹请打包为 .zip）"); if (event.target) event.target.value = ""; return; }
-				setUploadingCount(function (n) { return n + 1; });
+				setUploading(period);
 				setError("");
 				setStatus("正在上传并解析：" + file.name + "…");
 				try {
@@ -243,13 +229,13 @@ window.__ModuleLoader__.load({
 						return next;
 					});
 					setStatus("已上传：" + result.name + (result.kind === "archive" ? "（解压 " + String(result.fileCount) + " 个文件）" : "（文本 " + String(result.chars) + " 字符）"));
-					noteIfClosed("已上传：" + result.name + "，点击查看", true);
+					noteIfClosed("已上传：" + result.name);
 				} catch (reason) {
 					setError(reason instanceof Error ? reason.message : String(reason));
 					setStatus("");
-					noteIfClosed("上传失败，点击查看详情", false);
+					noteIfClosed("上传失败，点击查看详情");
 				} finally {
-					setUploadingCount(function (n) { return Math.max(0, n - 1); });
+					setUploading("");
 					if (event.target) event.target.value = "";
 				}
 			};
@@ -285,12 +271,12 @@ window.__ModuleLoader__.load({
 			const material = function (title, key, period) {
 				return react.createElement("label", { className: "drp-box" },
 					react.createElement("strong", null, title),
-					react.createElement("small", null, "可混合输入学习文档、源码压缩包和会议纪要"),
+					react.createElement("small", null, "可混合输入学习文档、代码源码和会议纪要；也可上传文档文件或源代码文件夹压缩包"),
 					react.createElement("div", { className: "drp-upload" },
 						react.createElement("div", { className: "drp-upload-title" },
 							react.createElement("span", null, "📎"),
 							react.createElement("span", null, "上传文档 / 源码文件夹压缩包（.zip，单个 ≤100MB）")),
-						react.createElement("input", { type: "file", className: "drp-file-input", ref: function (node) { fileInputs.current[period] = node; }, accept: ".zip,.docx,.txt,.md,.json,.js,.ts,.tsx,.jsx,.py,.java,.c,.h,.cpp,.hpp,.cs,.go,.rs,.sql,.html,.css,.scss,.less,.xml,.yaml,.yml,.toml,.ini,.conf,.sh,.bat,.ps1,.vue,.svelte,.php,.rb,.swift,.kt,.properties" }),
+						react.createElement("input", { type: "file", className: "drp-file-input", ref: function (node) { fileInputs.current[period] = node; }, accept: ".zip,.docx,.txt,.md,.json,.js,.ts,.tsx,.jsx,.py,.java,.c,.h,.cpp,.cs,.go,.rs,.sql,.html,.css,.scss,.xml,.yaml,.yml,.toml,.ini,.sh,.ps1,.vue,.php,.rb,.swift,.kt,.properties" }),
 						uploads[period].length > 0 ? react.createElement("div", { className: "drp-file-list" }, uploads[period].map(function (item) {
 							return react.createElement("div", { key: item.id, className: "drp-file-item" },
 								react.createElement("span", null, item.name + (item.kind === "archive" ? "（" + String(item.fileCount) + " 个文件）" : "（" + String(item.chars) + " 字符）")),
@@ -310,107 +296,45 @@ window.__ModuleLoader__.load({
 					}));
 					if (!result || !result.ok) throw new Error((result && result.error) || "生成失败");
 					setGenerated(result);
-					setEdited({ todayCompleted: result.report.todayCompleted, tomorrowPlan: result.report.tomorrowPlan, insights: result.report.insights });
 					setStatus("已生成：" + result.file.relativePath);
-					noteIfClosed("日报已生成，点击查看", true);
+					noteIfClosed("日报已生成，点击查看");
 				} catch (reason) {
 					setError(reason instanceof Error ? reason.message : String(reason));
 					setStatus("");
-					noteIfClosed("生成失败，点击查看详情", false);
+					noteIfClosed("生成失败，点击查看详情");
 				} finally {
 					setBusy(false);
 				}
 			};
-			// ---- B1: 生成后可编辑三段正文；下载/发送前按编辑内容重建 Word ----
-			const dirty = !!generated && !!edited && (
-				edited.todayCompleted !== generated.report.todayCompleted ||
-				edited.tomorrowPlan !== generated.report.tomorrowPlan ||
-				edited.insights !== generated.report.insights
-			);
-			// Persist user edits on the Host: rebuilds a fresh .docx from the
-			// edited text and updates the ledger entry (so MCP get/send_report see
-			// the edited content too). Returns {file, report}, or null on failure.
-			const applyEdits = async function () {
-				if (!generated) return { file: null, report: null };
-				if (!dirty) return { file: generated.file, report: generated.report };
-				setRebuilding(true);
-				setError("");
-				try {
-					const result = await apiCall("/rebuild-file", { id: generated.id, report: edited });
-					if (!result || !result.ok) throw new Error((result && result.error) || "应用修改失败");
-					const updated = { id: result.id, report: result.report, file: result.file };
-					setGenerated(updated);
-					setEdited({ todayCompleted: result.report.todayCompleted, tomorrowPlan: result.report.tomorrowPlan, insights: result.report.insights });
-					setStatus("已按修改重新生成 Word：" + result.file.relativePath);
-					return { file: result.file, report: result.report };
-				} catch (reason) {
-					setError(reason instanceof Error ? reason.message : String(reason));
-					setStatus("");
-					return null;
-				} finally {
-					setRebuilding(false);
-				}
-			};
-			const triggerDownload = function (base64, filename) {
-				const a = document.createElement("a");
-				a.href = "data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64," + base64;
-				a.download = filename;
-				document.body.appendChild(a);
-				a.click();
-				a.remove();
-			};
-			const downloadDocx = async function () {
-				if (!generated) return;
-				setError("");
-				const applied = await applyEdits();
-				if (!applied || !applied.file) return;
-				triggerDownload(applied.file.downloadBase64, generated.file.date + "-日报.docx");
-			};
-			const resetEdits = function () {
-				if (!generated) return;
-				setEdited({ todayCompleted: generated.report.todayCompleted, tomorrowPlan: generated.report.tomorrowPlan, insights: generated.report.insights });
-				setError("");
-			};
 			const send = async function () {
 				if (!generated) return;
-				if (rebuilding) return;
 				if (!recipient.trim()) { setError("请填写钉钉好友姓名"); return; }
 				setSending(true);
 				setError("");
-				setStatus("正在应用内容并发送…");
+				setStatus("正在唯一解析好友并发送附件…");
 				try {
-					const applied = await applyEdits();
-					if (applied === null) return;
-					setStatus("正在唯一解析好友并发送附件…");
 					const result = await apiCall("/send-report", { id: generated.id, recipient: recipient.trim() });
 					if (!result || !result.ok) throw new Error((result && result.error) || "发送失败");
 					setStatus("发送请求已完成，请在钉钉确认。");
-					noteIfClosed("已发送到钉钉，点击查看", true);
+					noteIfClosed("已发送到钉钉");
 				} catch (reason) {
 					setError(reason instanceof Error ? reason.message : String(reason));
 					setStatus("");
-					noteIfClosed("发送失败，点击查看详情", false);
+					noteIfClosed("发送失败，点击查看详情");
 				} finally {
 					setSending(false);
 				}
 			};
-			const previewSection = function (title, key) {
-				const text = edited ? (edited[key] || "") : "";
-				const rows = Math.min(12, Math.max(4, text.split("\n").length + 1));
-				return react.createElement(react.Fragment, null,
-					react.createElement("h2", null, title),
-					react.createElement("textarea", { className: "drp-edit", rows: rows, value: text, maxLength: 90000, onChange: function (event) { setEdited(function (current) { const next = Object.assign({}, current); next[key] = event.target.value; return next; }); } }));
-			};
+			const href = generated ? "data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64," + generated.file.downloadBase64 : "";
 			// Background pill (only while the panel is closed): shows an in-flight
 			// operation with a spinner, or a completion notice when a task settled
 			// while the user was away. Clicking it reopens the panel.
-			const opRunning = busy || uploadingCount > 0 || sending;
-			const doneNote = doneClosed;
-			const pill = (!open && (opRunning || doneNote))
-				? react.createElement("button", { type: "button", className: "drp-activity" + (opRunning ? " drp-activity-running" : doneNote && doneNote.ok ? " drp-activity-done" : " drp-activity-error"), title: "打开日报助手", onClick: function () { window.__drpSetOpen(true); } },
+			const opRunning = busy || !!uploading || sending;
+			const pill = (!open && (opRunning || doneClosed))
+				? react.createElement("button", { type: "button", className: "drp-activity" + (opRunning ? " drp-activity-running" : " drp-activity-done"), title: "打开日报助手", onClick: function () { window.__drpSetOpen(true); } },
 					opRunning ? react.createElement("span", { className: "drp-spinner" }) : null,
 					react.createElement("span", { className: "drp-activity-text" },
-						opRunning ? (status || "处理中…") : ((doneNote ? (doneNote.ok ? "✓ " : "✗ ") : "✓ ") + ((doneNote && doneNote.text) || "已完成"))))
+						opRunning ? (status || "处理中…") : ("✓ " + (doneClosed || "已完成") + "，点击查看")))
 				: null;
 			const overlay = open
 				? react.createElement("div", { className: "drp-overlay" },
@@ -425,24 +349,22 @@ window.__ModuleLoader__.load({
 							material("上午素材", "morningMaterials", "morning"),
 							material("下午素材", "afternoonMaterials", "afternoon")),
 						react.createElement("div", { className: "drp-actions" },
-							react.createElement("button", { type: "button", className: "drp-btn drp-primary", disabled: busy || sending || uploadingCount > 0 || rebuilding, onClick: generate }, busy ? "生成中…" : "生成 Word 日报"),
+							react.createElement("button", { type: "button", className: "drp-btn drp-primary", disabled: busy || sending || !!uploading, onClick: generate }, busy ? "生成中…" : "生成 Word 日报"),
 							react.createElement("label", { className: "drp-field" },
 								react.createElement("span", null, "钉钉好友姓名"),
 								react.createElement("input", { className: "drp-input", value: recipient, onChange: function (event) { setRecipient(event.target.value); }, placeholder: "输入姓名；歧义时停止" })),
-							react.createElement("button", { type: "button", className: "drp-btn drp-secondary", disabled: !generated || busy || sending || uploadingCount > 0 || rebuilding, onClick: send }, sending ? "发送中…" : "发送到钉钉")),
-						react.createElement("p", { className: "drp-bg-hint" }, "上传 / 生成 / 发送进行中可随时点 × 关闭：任务会在后台继续，完成后点击右下角胶囊查看结果。生成后可编辑三段正文，下载 / 发送将按编辑后的内容重新生成 Word。"),
+							react.createElement("button", { type: "button", className: "drp-btn drp-secondary", disabled: !generated || busy || sending || !!uploading, onClick: send }, sending ? "发送中…" : "发送到钉钉")),
+						react.createElement("p", { className: "drp-bg-hint" }, "上传 / 生成 / 发送进行中可随时点 × 关闭：任务会在后台继续，完成后点击右下角胶囊查看结果。"),
 						status ? react.createElement("div", { className: "drp-status" }, status) : null,
 						error ? react.createElement("div", { className: "drp-status drp-error", role: "alert" }, error) : null,
-						generated && edited ? react.createElement("article", { className: "drp-preview" },
-							previewSection("1. 今日完成工作", "todayCompleted"),
-							previewSection("2. 明日计划", "tomorrowPlan"),
-							previewSection("3. 感悟总结", "insights"),
-							dirty ? react.createElement("div", { className: "drp-edit-note" },
-								react.createElement("span", null, "内容已修改：下载 / 发送将按编辑后的文本重新生成 Word"),
-								react.createElement("button", { type: "button", className: "drp-reset", onClick: resetEdits }, "还原为生成原文")) : null,
-							react.createElement("div", { className: "drp-preview-actions" },
-								react.createElement("button", { type: "button", className: "drp-btn drp-primary", disabled: rebuilding || busy || sending || uploadingCount > 0, onClick: downloadDocx }, rebuilding ? "正在更新 Word…" : "下载 Word 文档"),
-								react.createElement("span", { className: "drp-preview-path" }, generated.file.relativePath))) : null))
+						generated ? react.createElement("article", { className: "drp-preview" },
+							react.createElement("h2", null, "1. 今日完成工作"),
+							react.createElement("p", null, generated.report.todayCompleted),
+							react.createElement("h2", null, "2. 明日计划"),
+							react.createElement("p", null, generated.report.tomorrowPlan),
+							react.createElement("h2", null, "3. 感悟总结"),
+							react.createElement("p", null, generated.report.insights),
+							react.createElement("a", { className: "drp-download", href: href, download: generated.file.date + "-日报.docx" }, "下载 Word 文档")) : null))
 				: null;
 			return react.createElement(react.Fragment, null, pill, overlay);
 		}

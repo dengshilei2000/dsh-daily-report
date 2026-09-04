@@ -71,8 +71,6 @@ dsh plugin --profile web add "file:$(pwd)/dsh-daily-report-0.2.0.tgz"
 2. 点击「生成 Word 日报」→ 自动调用当前模型生成三栏内容并构建 `.docx`
 3. （可选）填写钉钉好友姓名，点击「发送到钉钉」→ 插件唯一解析好友后发送附件
 
-**生成后可编辑**：预览区的三段正文（今日完成工作 / 明日计划 / 感悟总结）都是可编辑文本框。改动后点击「下载 Word 文档」或「发送到钉钉」，插件会先用编辑后的文本**重新生成一份 .docx**（新文件，不覆盖原文件）再执行；点「还原为生成原文」可一键撤销。编辑过的内容同步更新 Host 账本，MCP 的 `get_report` / `send_report` 也读到编辑后版本。
-
 **后台运行**：上传文件、生成日报、发送到钉钉的过程中都可以随时点 ×（或点遮罩）关闭面板回到 Web 界面——任务会在后台继续，不会中断。此时右下角悬浮按钮上方会显示一个进度胶囊（转圈 + 当前状态）；任务在面板关闭期间完成后胶囊变绿（如「✓ 日报已生成，点击查看」），点击即可回到面板查看结果 / 下载 / 发送。若在生成中直接关闭浏览器标签页，任务仍会在 DSH 端完成（docx 已落盘，reportId 保留在内存账本，可通过 MCP `list_reports` 找回）。
 
 > 生成日报会消耗模型 API 额度。钉钉发送依赖本机 `dws` CLI（钉钉工作台命令行）可用。
@@ -196,7 +194,6 @@ dsh-daily-report/
 │   └── client.js         # Client 半部：侧栏/右下角入口 + 日报面板（ModuleLoader 格式）
 ├── mcp-smoke-test.mjs        # HTTP 版 MCP 冒烟测试（12 项断言）
 ├── standalone-smoke-test.mjs # 独立 stdio 版冒烟测试（9 项断言）
-├── web-routes-test.mjs       # Web 路由集成测试（generate/rebuild 等，10 项断言）
 └── README.md
 ```
 
@@ -205,13 +202,11 @@ dsh-daily-report/
 ```bash
 node mcp-smoke-test.mjs        # HTTP 版 MCP 端点（12 项断言，无需启动 DSH）
 node standalone-smoke-test.mjs # 独立 stdio 版（mock API + PowerShell 写盘，9 项断言）
-node web-routes-test.mjs       # Web 路由（生成/编辑重建/校验，10 项断言，无需启动 DSH）
 # 插件内置自检：GET /api/daily-report/self-test（27 项）
 ```
 
 ## 版本
 
-- 0.2.3 生成后可编辑：预览三段改可编辑文本框，下载/发送前按编辑内容重建 Word（新 /rebuild-file 路由），可还原原文
 - 0.2.2 面板可后台运行：上传/生成/发送中随时关闭面板，任务后台继续，右下角胶囊显示进度与完成状态
 - 0.2.1 新增独立 stdio MCP Server（lib/mcp-standalone.js + bin `dsh-daily-report-mcp`）：Codex 等客户端无需 DSH 直接调用
 - 0.2.0 新增 MCP Server（Streamable HTTP）：generate_report / get_report / list_reports / send_report
