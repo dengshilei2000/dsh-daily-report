@@ -11,3 +11,6 @@ daily-reports/
 # logs & scratch
 *.log
 *.tmp
+
+# local pre-fix backup (user's own snapshot, keep off the repo)
+.pre-fix-backup/
